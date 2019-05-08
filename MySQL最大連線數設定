@@ -1,0 +1,118 @@
+在使用MySQL資料庫的時候,經常會遇到這麼一個問題,就是“Can not connect to MySQL server. Too many connections”-mysql 1040錯誤,這是因為訪問MySQL且還未釋放的連線數目已經達到MySQL的上限。通常,mysql的最大連線數預設是100, 最大可以達到16384。
+
+     在Windows下常用的有兩種方式修改最大連線數。
+
+     第一種:命令列修改。
+
+    >mysql -uuser -ppassword(命令列登入MySQL)
+
+    mysql>show variables like 'max_connections';(查可以看當前的最大連線數)
+
+    msyql>set global max_connections=1000;(設定最大連線數為1000,可以再次檢視是否設定成功)
+
+    mysql>exit(推出)
+
+    這種方式有個問題,就是設定的最大連線數只在mysql當前服務程序有效,一旦mysql重啟,又會恢復到初始狀態。因為mysql啟動後的初始化工作是從其配置檔案中讀取資料的,而這種方式沒有對其配置檔案做更改。
+
+    第二種:修改配置檔案。
+
+   這 種方式說來很簡單,只要修改MySQL配置檔案my.ini 或 my.cnf的引數max_connections,將其改為max_connections=1000,然後重啟MySQL即可。但是有一點最難的就是my.ini這個檔案在哪找。通常有兩種可能,一個是在安裝目錄下(這是比較理想的情況),另一種是在資料檔案的目錄下,安裝的時候如果沒有人為改變目錄的話,一般就在C:/ProgramData/MySQL往下的目錄下。
+
+ 
+
+與連線數相關的幾個引數:
+
+     在修改最大連線數的時候會有這樣一個疑問—這個值是不是越大越好,或者設定為多大才合適?這個引數的大小要綜合很多因素來考慮,比如使用的平臺所支援的執行緒庫數量(windows只能支援到2048)、伺服器的配置(特別是記憶體大小)、每個連線佔用資源(記憶體和負載)的多少、系統需要的響應時間等。可以在global或session範圍內修改這個引數。連線數的增加會帶來很多連鎖反應,需要在實際中避免由此引發的負面影響。
+
+    首先看一下MySQL的狀態:
+
+mysql> status;
+--------------
+mysql  Ver 14.14 Distrib 5.5.15, for Win32 (x86)
+
+Connection id:          1
+Current database:
+Current user:           root@localhost
+SSL:                    Not in use
+Using delimiter:        ;
+Server version:         5.5.15 MySQL Community Server (GPL)
+Protocol version:       10
+Connection:             localhost via TCP/IP
+Server characterset:    utf8
+Db     characterset:    utf8
+Client characterset:    gbk
+Conn.  characterset:    gbk
+TCP port:               3306
+Uptime:                 1 hour 3 min 27 sec
+
+Threads: 12  Questions: 18  Slow queries: 10  Opens: 33  Flush tables: 5  Open tab
+les: 34  Queries per second avg: 6.256
+--------------
+
+Open tables:34,即當前資料庫開啟表的數量是34個,注意這個34並不是實際的34個表,因為MySQL是多執行緒的系統,幾個不同的併發連線可能開啟同一個表,這就需要為不同的連線session分配獨立的記憶體空間來儲存這些資訊以避免衝突。因此連線數的增加會導致MySQL需要的檔案描述符數目的增加。另外對於MyISAM表,還會建立一個共享的索引檔案描述符。
+
+    在MySQL資料庫層面,有幾個系統引數決定了可同時開啟的表的數量和要使用的檔案描述符,那就是table_open_cache、max_tmp_tables和open_files_limit。
+
+mysql> show variables like 'table_open%';
++------------------+-------+
+| Variable_name    | Value |
++------------------+-------+
+| table_open_cache | 256   |
++------------------+-------+
+1 row in set (0.00 sec)
+
+table_open_cache:256,這就是說所有的MySQL執行緒一共能同時開啟256個表,我們可以蒐集系統的開啟表的數量的歷史記錄和這個引數來對比,決定是否要增加這個引數的大小。檢視當前的開啟表的數目(Open tables)可用上邊提到過的status命令,另外可以直接查詢這個系統變數的值:
+
+mysql> show status like 'open_tables';
++---------------+-------+
+| Variable_name | Value |
++---------------+-------+
+| Open_tables   | 3     |
++---------------+-------+
+1 row in set (0.00 sec)
+
+Open_tables就是當前開啟表的數目,通過flush tables命令可以關閉當前開啟的表。 這個值如果過大,並且如果沒有經常的執行flush tables命令,可以考慮增加table_open_cache引數的大小。 接下來看max_tmp_tables:mysql> show variables like 'max_tmp%'; 
++----------------+-------+ 
+| Variable_name  | Value | 
++----------------+-------+ 
+| max_tmp_tables | 32    | 
++----------------+-------+ 
+1 row in set (0.00 sec)max_tmp_tables:32即單個客戶端連線能開啟的臨時表數目。檢視當前已開啟的臨時表的資訊:mysql> show global status like '%tmp%table%'; 
++-------------------------+-------+ 
+| Variable_name           | Value | 
++-------------------------+-------+ 
+| Created_tmp_disk_tables | 0     | 
+| Created_tmp_tables      | 11    | 
++-------------------------+-------+ 
+2 rows in set (0.00 sec)根據這兩個值可以判斷臨時表的建立位置,一般選取BLOB和TEXT列、Group by 和 Distinct語句的資料量超過512 bytes,或者union的時候select某列的資料超過512 bytes的時候,就直接在磁碟上建立臨時表了,另外記憶體中的臨時表變大的時候,也可能被MySQL自動轉移到磁碟上(由tmp_table_size和max_heap_table_size引數決定)。 增加table_open_cache或max_tmp_tables 引數的大小後,從作業系統的角度看,mysqld程序需要使用的檔案描述符的個數就要相應的增加,這個是由open_files_limit引數控制的。mysql> show variables like 'open_files%'; 
++------------------+-------+ 
+| Variable_name    | Value | 
++------------------+-------+ 
+| open_files_limit | 2670  | 
++------------------+-------+ 
+1 row in set (0.00 sec)但是這個引數是OS限制的,所以我們設定的值並不一定總是生效。如果OS限制MySQL不能修改這個值,那麼置為0。如果是專用的MySQL伺服器上,這個值一般要設定的儘量大,就是設為沒有報Too many open files錯誤的最大值,這樣就能一勞永逸了。當作業系統無法分配足夠的檔案描述符的時候,mysqld程序會在錯誤日誌裡記錄警告資訊。相應的,有兩個狀態變數記錄了當前和歷史的檔案開啟資訊:mysql> show global status like '%open%file%'; 
++---------------+-------+ 
+| Variable_name | Value | 
++---------------+-------+ 
+| Open_files    | 0     | 
+| Opened_files  | 76    | 
++---------------+-------+ 
+2 rows in set (0.00 sec)MySQL為每個連線分配執行緒來處理,可以通過threads_connected引數檢視當前分配的執行緒數量:mysql> show status like '%thread%'; 
++------------------------------------------+-------+ 
+| Variable_name                            | Value | 
++------------------------------------------+-------+ 
+| Delayed_insert_threads                   | 0     | 
+| Performance_schema_thread_classes_lost   | 0     | 
+| Performance_schema_thread_instances_lost | 0     | 
+| Slow_launch_threads                      | 0     | 
+| Threads_cached                           | 0     | 
+| Threads_connected                        | 1     | 
+| Threads_created                          | 1     | 
+| Threads_running                          | 1     | 
++------------------------------------------+-------+ 
+8 rows in set (0.00 sec)
+比較threads_connected引數和前面提到的max_connections引數,也可以作為目前的系統負載的參照,決定是否需要修改連線數。
+
+檢視每個執行緒的詳細資訊:mysql>show processlist;對影響系統執行的執行緒:kill connection|query threadid的命令殺死。
+
+參考資料: https://www.itread01.com/p/1158932.html
