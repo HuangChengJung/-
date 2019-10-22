@@ -1,0 +1,9 @@
+error > warn > infon > debug > trace
+
+error   you need        to do something
+warn    you might need  to do something
+info    you need        to log this in production
+debug   you might need  to log this in production
+trace   everything that is happening (no performance concerns)
+
+參考資料:https://softwareengineering.stackexchange.com/questions/279690/why-does-the-trace-level-exist-and-when-should-i-use-it-rather-than-debug
