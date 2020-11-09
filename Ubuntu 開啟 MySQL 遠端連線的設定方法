@@ -1,0 +1,55 @@
+1. 先在本地端登入MySQL服務:
+
+mysql -u root -p
+
+然後輸入root的密碼
+
+2. 登入成功會看到prompt:
+
+mysql>
+
+3. 輸入權限設定命令:
+
+GRANT ALL PRIVILEGES ON *.* TO 'USERNAME'@'IP' IDENTIFIED BY 'PASSWORD';
+
+USERNAME 一般來說就是root
+
+IP 是開放連線的IP位址, 如果用‘%’, 會讓所有電腦皆可連線
+
+PASSWORD 是連線密碼
+
+4. 將權限flush, 然後離開MySQL:
+
+mysql> FLUSH PRIVILEGES;
+
+mysql> quit;
+
+5. 設定 Ubuntu 防火牆:
+
+#ufw enable
+
+#ufw allow 3306
+
+6. 設定 MySql的bind-address:
+
+#nano /etc/mysql/my.cnf
+
+將bind-address取消
+
+[mysqld]
+
+……
+
+#bind-address = 127.0.0.1 (在前面加#註解掉此行)
+
+7. 重新啟動MySql服務
+
+service mysql restart
+
+8. 遠端啟動mysql client登入，以 windows 為例：
+
+C:\AppServe\MySQL\bin\mysql –h xxx.xxx.xxx.xxx –u root -p
+
+xxx.xxx.xxx.xxx為伺服器IP位址
+
+參考來源: http://eportfolio.lib.ksu.edu.tw/~T093000170/blog?node=000000174
